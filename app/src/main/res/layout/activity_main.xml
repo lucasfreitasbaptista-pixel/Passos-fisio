@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- ================= LOGIN / CADASTRO ================= -->
+    <LinearLayout
+        android:id="@+id/containerAuth"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="32dp"
+        android:visibility="visible">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Passos Fisio"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="24dp" />
+
+        <EditText
+            android:id="@+id/campoNome"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Nome"
+            android:visibility="gone"
+            android:inputType="textPersonName" />
+
+        <EditText
+            android:id="@+id/campoEmail"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="E-mail"
+            android:inputType="textEmailAddress"
+            android:layout_marginTop="12dp" />
+
+        <EditText
+            android:id="@+id/campoSenha"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Senha"
+            android:inputType="textPassword"
+            android:layout_marginTop="12dp" />
+
+        <TextView
+            android:id="@+id/textErroAuth"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#C0392B"
+            android:layout_marginTop="8dp"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/btnEntrar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Entrar"
+            android:layout_marginTop="16dp" />
+
+        <TextView
+            android:id="@+id/linkAlternarModo"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Ainda não tem conta? Criar conta"
+            android:paddingTop="16dp"
+            android:textColor="#1F3A34" />
+
+    </LinearLayout>
+
+    <!-- ================= CÓDIGO DE CONVITE ================= -->
+    <LinearLayout
+        android:id="@+id/containerConvite"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="32dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Código do seu fisioterapeuta"
+            android:textSize="18sp"
+            android:layout_marginBottom="16dp" />
+
+        <EditText
+            android:id="@+id/campoCodigo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Ex: A3F9K2"
+            android:inputType="textCapCharacters" />
+
+        <TextView
+            android:id="@+id/textErroConvite"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#C0392B"
+            android:layout_marginTop="8dp"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/btnConfirmarConvite"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Confirmar"
+            android:layout_marginTop="16dp" />
+
+    </LinearLayout>
+
+    <!-- ================= CONTAGEM DE PASSOS ================= -->
+    <LinearLayout
+        android:id="@+id/containerPassos"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="24dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/textPassosHoje"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="0 passos hoje"
+            android:textSize="28sp" />
+
+    </LinearLayout>
+
+</FrameLayout>
