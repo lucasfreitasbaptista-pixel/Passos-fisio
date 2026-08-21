@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "com.passosfisio.app"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.passosfisio.app"
