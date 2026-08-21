@@ -3,6 +3,7 @@ package com.passosfisio.app
 import android.Manifest
 import android.app.*
 import android.content.BroadcastReceiver
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -10,9 +11,12 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.os.PowerManager
+import android.provider.Settings
 import android.view.View
 import android.widget.*
 import androidx.activity.ComponentActivity
@@ -52,11 +56,17 @@ class MainActivity : ComponentActivity() {
     private lateinit var textErroConvite: TextView
     private lateinit var btnConfirmarConvite: Button
 
-    private val pedirPermissaoSensor = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { concedida ->
-        if (concedida) iniciarServicoDePassos()
-        else Toast.makeText(this, "Sem essa permissão o app não consegue contar seus passos", Toast.LENGTH_LONG).show()
+    private lateinit var btnSairPaciente: TextView
+
+    private val pedirPermissoes = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { resultados ->
+        val sensorLiberado = resultados[Manifest.permission.ACTIVITY_RECOGNITION] ?: true
+        if (sensorLiberado) {
+            iniciarServicoDePassos()
+        } else {
+            Toast.makeText(this, "Sem essa permissão o app não consegue contar seus passos", Toast.LENGTH_LONG).show()
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -82,6 +92,8 @@ class MainActivity : ComponentActivity() {
         campoCodigo = findViewById(R.id.campoCodigo)
         textErroConvite = findViewById(R.id.textErroConvite)
         btnConfirmarConvite = findViewById(R.id.btnConfirmarConvite)
+
+        btnSairPaciente = findViewById(R.id.btnSairPaciente)
     }
 
     private fun ligarListeners() {
@@ -95,6 +107,17 @@ class MainActivity : ComponentActivity() {
 
         btnEntrar.setOnClickListener { autenticar() }
         btnConfirmarConvite.setOnClickListener { confirmarConvite() }
+        btnSairPaciente.setOnClickListener { sair() }
+    }
+
+    private fun sair() {
+        stopService(Intent(this, StepCounterService::class.java))
+        SupabaseApi.logout(this)
+        metaAtiva = null
+        campoEmail.setText("")
+        campoSenha.setText("")
+        campoCodigo.setText("")
+        mostrarSomente(containerAuth)
     }
 
     private fun decidirTelaInicial() {
@@ -110,7 +133,7 @@ class MainActivity : ComponentActivity() {
             }
             if (vinculado) {
                 mostrarSomente(containerPassos)
-                verificarPermissaoESensor()
+                verificarPermissoes()
             } else {
                 mostrarSomente(containerConvite)
             }
@@ -161,7 +184,7 @@ class MainActivity : ComponentActivity() {
                 }
                 SupabaseApi.criarVinculo(this@MainActivity, fisioId)
                 mostrarSomente(containerPassos)
-                verificarPermissaoESensor()
+                verificarPermissoes()
             } catch (e: Exception) {
                 mostrarErro(textErroConvite, e.message ?: "Algo deu errado")
             } finally {
@@ -181,17 +204,26 @@ class MainActivity : ComponentActivity() {
         containerPassos.visibility = if (container == containerPassos) View.VISIBLE else View.GONE
     }
 
-    private fun verificarPermissaoESensor() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            when {
-                ContextCompat.checkSelfPermission(
-                    this, Manifest.permission.ACTIVITY_RECOGNITION
-                ) == PackageManager.PERMISSION_GRANTED -> iniciarServicoDePassos()
+    /** Pede sensor de passos e notificações juntos (a segunda só existe a partir do Android 13). */
+    private fun verificarPermissoes() {
+        val permissoesNecessarias = mutableListOf<String>()
 
-                else -> pedirPermissaoSensor.launch(Manifest.permission.ACTIVITY_RECOGNITION)
-            }
-        } else {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACTIVITY_RECOGNITION) != PackageManager.PERMISSION_GRANTED
+        ) {
+            permissoesNecessarias.add(Manifest.permission.ACTIVITY_RECOGNITION)
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            permissoesNecessarias.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+
+        if (permissoesNecessarias.isEmpty()) {
             iniciarServicoDePassos()
+        } else {
+            pedirPermissoes.launch(permissoesNecessarias.toTypedArray())
         }
     }
 
@@ -212,6 +244,51 @@ class MainActivity : ComponentActivity() {
             }
             iniciarAtualizacaoTelaPassos()
             iniciarAtualizacaoMeta()
+        }
+        solicitarIgnorarOtimizacaoBateria()
+        tentarAbrirAutostartMiui()
+    }
+
+    /** Pede pro sistema parar de restringir esse app por economia de bateria. */
+    private fun solicitarIgnorarOtimizacaoBateria() {
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
+            try {
+                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+                startActivity(intent)
+            } catch (e: Exception) {
+                // Alguns fabricantes bloqueiam esse intent — sem problema, ignora
+            }
+        }
+    }
+
+    /**
+     * Tenta abrir a tela de "Início automático" do MIUI/HyperOS (Xiaomi/POCO/Redmi).
+     * É um atalho não-documentado, só funciona nesses aparelhos, e só uma vez
+     * (pra não incomodar toda hora que o app abre).
+     */
+    private fun tentarAbrirAutostartMiui() {
+        val prefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+        if (prefs.getBoolean("autostart_solicitado", false)) return
+        prefs.edit().putBoolean("autostart_solicitado", true).apply()
+
+        try {
+            val intent = Intent().apply {
+                component = ComponentName(
+                    "com.miui.securitycenter",
+                    "com.miui.permcenter.autostart.AutoStartManagementActivity"
+                )
+            }
+            Toast.makeText(
+                this,
+                "Procure \"Passos Fisio\" e ative o início automático",
+                Toast.LENGTH_LONG
+            ).show()
+            startActivity(intent)
+        } catch (e: Exception) {
+            // Não é MIUI, ou a tela mudou de nome — ignora silenciosamente
         }
     }
 
@@ -284,10 +361,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// ============================================================
-// StepCounterService — lê o sensor de hardware TYPE_STEP_COUNTER
-// em segundo plano e sincroniza com o Supabase periodicamente
-// ============================================================
 class StepCounterService : Service(), SensorEventListener {
 
     private lateinit var sensorManager: SensorManager
@@ -324,6 +397,20 @@ class StepCounterService : Service(), SensorEventListener {
         return START_STICKY
     }
 
+    /**
+     * Se o usuário remover o app da lista de recentes (deslizar pra fechar),
+     * o Android pode matar o serviço. Isso religa ele na hora.
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        val intent = Intent(applicationContext, StepCounterService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            applicationContext.startForegroundService(intent)
+        } else {
+            applicationContext.startService(intent)
+        }
+    }
+
     override fun onSensorChanged(event: SensorEvent?) {
         if (event == null || event.sensor.type != Sensor.TYPE_STEP_COUNTER) return
 
@@ -358,20 +445,31 @@ class StepCounterService : Service(), SensorEventListener {
         }
     }
 
+    private var ultimoErroSync: String? = null
+
     private suspend fun sincronizarComSupabase() {
         try {
             val hoje = dateFormat.format(Date())
             val passos = getStepsToday()
             SupabaseApi.upsertPassosDiarios(applicationContext, hoje, passos)
+            ultimoErroSync = null
         } catch (e: Exception) {
+            ultimoErroSync = e.message ?: e.toString()
             e.printStackTrace()
         }
+        atualizarNotificacao(getStepsToday())
     }
 
     private fun buildNotification(passos: Int): Notification {
+        val texto = if (ultimoErroSync != null) {
+            "$passos passos hoje · erro: $ultimoErroSync"
+        } else {
+            "$passos passos hoje"
+        }
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Contando seus passos")
-            .setContentText("$passos passos hoje")
+            .setContentText(texto)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(texto))
             .setSmallIcon(R.drawable.ic_walk)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
