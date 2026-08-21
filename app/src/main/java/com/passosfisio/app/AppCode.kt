@@ -496,8 +496,11 @@ object SupabaseApi {
                 .build()
 
             client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext null
-                val arr = org.json.JSONArray(response.body?.string() ?: "[]")
+                val texto = response.body?.string() ?: "[]"
+                if (!response.isSuccessful) {
+                    throw IOException("Erro ao buscar convite: ${response.code} $texto")
+                }
+                val arr = org.json.JSONArray(texto)
                 if (arr.length() == 0) return@withContext null
                 arr.getJSONObject(0).optString("fisio_id", null)
             }
@@ -515,31 +518,4 @@ object SupabaseApi {
         val request = Request.Builder()
             .url("$SUPABASE_URL/rest/v1/passos_vinculos")
             .header("apikey", SUPABASE_ANON_KEY)
-            .header("Authorization", "Bearer ${tokenDoUsuario(context)}")
-            .header("Content-Type", "application/json")
-            .post(body)
-            .build()
-
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                throw IOException("Falha ao criar vínculo: ${response.code} ${response.body?.string()}")
-            }
-        }
-    }
-}
-
-// ============================================================
-// BootReceiver — religa a contagem depois que o celular reinicia
-// ============================================================
-class BootReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
-            val serviceIntent = Intent(context, StepCounterService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(serviceIntent)
-            } else {
-                context.startService(serviceIntent)
-            }
-        }
-    }
-}
+            .header("Authorization", "Bearer ${tokenDoUsua
