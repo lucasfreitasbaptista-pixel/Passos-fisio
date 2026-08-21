@@ -347,7 +347,8 @@ class StepCounterService : Service(), SensorEventListener {
     private suspend fun sincronizarComSupabase() {
         try {
             val hoje = dateFormat.format(Date())
-            val passos = getStepsToday()SupabaseApi.upsertPassosDiarios(applicationContext, hoje, passos)
+            val passos = getStepsToday()
+            SupabaseApi.upsertPassosDiarios(applicationContext, hoje, passos)
         } catch (e: Exception) {
             e.printStackTrace()
         }
