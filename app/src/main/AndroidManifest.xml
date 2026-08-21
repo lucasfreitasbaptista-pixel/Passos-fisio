@@ -11,6 +11,10 @@
 
     <uses-feature android:name="android.hardware.sensor.stepcounter" android:required="true" />
 
+    <queries>
+        <package android:name="com.google.android.apps.healthdata" />
+    </queries>
+
     <application
         android:label="Passos Fisio"
         android:icon="@drawable/ic_launcher"
