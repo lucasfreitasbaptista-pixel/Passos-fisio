@@ -202,6 +202,23 @@ class MainActivity : ComponentActivity() {
         } else {
             startService(intent)
         }
+        iniciarAtualizacaoTelaPassos()
+    }
+
+    private fun iniciarAtualizacaoTelaPassos() {
+        lifecycleScope.launch {
+            while (isActive) {
+                atualizarTextoPassos()
+                delay(2000)
+            }
+        }
+    }
+
+    private fun atualizarTextoPassos() {
+        val prefs = getSharedPreferences(StepCounterService.PREFS_NAME, Context.MODE_PRIVATE)
+        val hoje = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        val passos = prefs.getInt(StepCounterService.KEY_STEPS_TODAY + hoje, 0)
+        findViewById<TextView>(R.id.textPassosHoje).text = "$passos passos hoje"
     }
 }
 
@@ -270,11 +287,10 @@ class StepCounterService : Service(), SensorEventListener {
         return prefs.getInt(KEY_STEPS_TODAY + hoje, 0)
     }
 
-    private fun startPeriodicSync() {
-        scope.launch {
+    private fun startPeriodicSync() {scope.launch {
             while (isActive) {
-                delay(SYNC_INTERVAL_MS)
                 sincronizarComSupabase()
+                delay(SYNC_INTERVAL_MS)
             }
         }
     }
@@ -519,7 +535,7 @@ object SupabaseApi {
             .url("$SUPABASE_URL/rest/v1/passos_vinculos")
             .header("apikey", SUPABASE_ANON_KEY)
             .header("Authorization", "Bearer ${tokenDoUsuario(context)}")
-.header("Content-Type", "application/json")
+            .header("Content-Type", "application/json")
             .post(body)
             .build()
 
@@ -529,7 +545,9 @@ object SupabaseApi {
             }
         }
     }
-}// ============================================================
+}
+
+// ============================================================
 // BootReceiver — religa a contagem depois que o celular reinicia
 // ============================================================
 class BootReceiver : BroadcastReceiver() {
