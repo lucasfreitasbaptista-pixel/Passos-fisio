@@ -211,6 +211,7 @@ class MainActivity : ComponentActivity() {
                 null
             }
             iniciarAtualizacaoTelaPassos()
+            iniciarAtualizacaoMeta()
         }
     }
 
@@ -219,6 +220,19 @@ class MainActivity : ComponentActivity() {
             while (isActive) {
                 atualizarTextoPassos()
                 delay(2000)
+            }
+        }
+    }
+
+    private fun iniciarAtualizacaoMeta() {
+        lifecycleScope.launch {
+            while (isActive) {
+                delay(60000)
+                metaAtiva = try {
+                    SupabaseApi.buscarMetaAtiva(this@MainActivity)
+                } catch (e: Exception) {
+                    metaAtiva
+                }
             }
         }
     }
