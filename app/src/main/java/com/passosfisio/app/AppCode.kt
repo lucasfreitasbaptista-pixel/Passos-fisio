@@ -602,7 +602,7 @@ object SupabaseApi {
             }.toString().toRequestBody(JSON)
 
             Request.Builder()
-                .url("$SUPABASE_URL/rest/v1/passos_diarios")
+                .url("$SUPABASE_URL/rest/v1/passos_diarios?on_conflict=paciente_id,data")
                 .header("apikey", SUPABASE_ANON_KEY)
                 .header("Authorization", "Bearer $token")
                 .header("Content-Type", "application/json")
