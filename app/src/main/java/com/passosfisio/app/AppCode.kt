@@ -288,7 +288,7 @@ class StepCounterService : Service(), SensorEventListener {
         const val PREFS_NAME = "passos_prefs"
         const val KEY_BASELINE = "baseline_"
         const val KEY_STEPS_TODAY = "steps_today_"
-        const val SYNC_INTERVAL_MS = 5 * 60 * 1000L
+        const val SYNC_INTERVAL_MS = 20 * 1000L
     }
 
     override fun onCreate() {
