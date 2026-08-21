@@ -74,6 +74,13 @@ class MainActivity : ComponentActivity() {
     ) { /* nada especial precisa acontecer aqui; a leitura já tenta de novo sozinha */ }
 
     private fun verificarHealthConnect() {
+        val status = try {
+            androidx.health.connect.client.HealthConnectClient.getSdkStatus(this)
+        } catch (e: Exception) {
+            -999
+        }
+        Toast.makeText(this, "Health Connect status: $status", Toast.LENGTH_LONG).show()
+
         if (!HealthConnectHelper.disponivel(this)) return
         lifecycleScope.launch {
             if (!HealthConnectHelper.temPermissao(this@MainActivity)) {
