@@ -12,7 +12,7 @@
 
     <application
         android:label="Passos Fisio"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@drawable/ic_launcher"
         android:allowBackup="true"
         android:theme="@style/Theme.PassosFisio">
 
