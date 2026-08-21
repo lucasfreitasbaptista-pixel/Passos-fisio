@@ -260,6 +260,7 @@ class MainActivity : ComponentActivity() {
         }
         solicitarIgnorarOtimizacaoBateria()
         tentarAbrirAutostartMiui()
+        verificarHealthConnect()
     }
 
     /** Pede pro sistema parar de restringir esse app por economia de bateria. */
@@ -463,8 +464,10 @@ class StepCounterService : Service(), SensorEventListener {
     private suspend fun sincronizarComSupabase() {
         try {
             val hoje = dateFormat.format(Date())
-            val passos = getStepsToday()
-            SupabaseApi.upsertPassosDiarios(applicationContext, hoje, passos)
+            val passosTelefone = getStepsToday()
+            val passosRelogio = HealthConnectHelper.passosHoje(applicationContext) ?: 0
+            val passosFinal = maxOf(passosTelefone, passosRelogio)
+            SupabaseApi.upsertPassosDiarios(applicationContext, hoje, passosFinal)
             ultimoErroSync = null
         } catch (e: Exception) {
             ultimoErroSync = e.message ?: e.toString()
