@@ -69,6 +69,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val pedirPermissaoHealthConnect = registerForActivityResult(
+        androidx.health.connect.client.PermissionController.createRequestPermissionResultContract()
+    ) { /* nada especial precisa acontecer aqui; a leitura já tenta de novo sozinha */ }
+
+    private fun verificarHealthConnect() {
+        if (!HealthConnectHelper.disponivel(this)) return
+        lifecycleScope.launch {
+            if (!HealthConnectHelper.temPermissao(this@MainActivity)) {
+                pedirPermissaoHealthConnect.launch(HealthConnectHelper.PERMISSOES)
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
