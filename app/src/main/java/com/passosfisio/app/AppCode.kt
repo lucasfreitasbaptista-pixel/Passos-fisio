@@ -195,6 +195,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private var metaAtiva: SupabaseApi.Meta? = null
+
     private fun iniciarServicoDePassos() {
         val intent = Intent(this, StepCounterService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -202,7 +204,14 @@ class MainActivity : ComponentActivity() {
         } else {
             startService(intent)
         }
-        iniciarAtualizacaoTelaPassos()
+        lifecycleScope.launch {
+            metaAtiva = try {
+                SupabaseApi.buscarMetaAtiva(this@MainActivity)
+            } catch (e: Exception) {
+                null
+            }
+            iniciarAtualizacaoTelaPassos()
+        }
     }
 
     private fun iniciarAtualizacaoTelaPassos() {
@@ -219,6 +228,45 @@ class MainActivity : ComponentActivity() {
         val hoje = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
         val passos = prefs.getInt(StepCounterService.KEY_STEPS_TODAY + hoje, 0)
         findViewById<TextView>(R.id.textPassosHoje).text = "$passos passos hoje"
+        atualizarMetaEMensagem(passos)
+    }
+
+    private fun atualizarMetaEMensagem(passos: Int) {
+        val meta = metaAtiva ?: return
+        val alvo = meta.passosAlvo
+        if (alvo <= 0) return
+
+        val percentual = ((passos.toDouble() / alvo.toDouble()) * 100).toInt().coerceAtMost(999)
+        val periodo = if (meta.tipo == "diaria") "dia" else "semana"
+
+        val textMeta = findViewById<TextView>(R.id.textMetaInfo)
+        val barra = findViewById<ProgressBar>(R.id.barraProgresso)
+        val caixaMensagem = findViewById<LinearLayout>(R.id.caixaMensagem)
+        val textMensagem = findViewById<TextView>(R.id.textMensagem)
+
+        textMeta.visibility = View.VISIBLE
+        textMeta.text = "meta: $alvo passos/$periodo · $percentual%"
+
+        barra.visibility = View.VISIBLE
+        barra.progress = percentual.coerceAtMost(100)
+
+        caixaMensagem.visibility = View.VISIBLE
+        textMensagem.text = mensagemMotivacional(passos, alvo, percentual)
+    }
+
+    private fun mensagemMotivacional(passos: Int, alvo: Int, percentual: Int): String {
+        val horaAtual = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+
+        return when {
+            percentual >= 100 ->
+                "Parabéns! Você completou sua meta de passos!"
+            horaAtual >= 21 ->
+                "Hoje não batemos nossa meta de passos, continue tentando!"
+            percentual >= 50 ->
+                "Você atingiu $percentual% da sua meta, continue caminhando!"
+            else ->
+                "Agora são ${horaAtual}h e você já deu $passos passos, continue caminhando!"
+        }
     }
 }
 
@@ -287,7 +335,8 @@ class StepCounterService : Service(), SensorEventListener {
         return prefs.getInt(KEY_STEPS_TODAY + hoje, 0)
     }
 
-    private fun startPeriodicSync() {scope.launch {
+    private fun startPeriodicSync() {
+        scope.launch {
             while (isActive) {
                 sincronizarComSupabase()
                 delay(SYNC_INTERVAL_MS)
@@ -298,8 +347,7 @@ class StepCounterService : Service(), SensorEventListener {
     private suspend fun sincronizarComSupabase() {
         try {
             val hoje = dateFormat.format(Date())
-            val passos = getStepsToday()
-            SupabaseApi.upsertPassosDiarios(applicationContext, hoje, passos)
+            val passos = getStepsToday()SupabaseApi.upsertPassosDiarios(applicationContext, hoje, passos)
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -343,7 +391,8 @@ class StepCounterService : Service(), SensorEventListener {
 
 // ============================================================
 // SupabaseApi — chamadas diretas à API REST/Auth do Supabase,
-// sem SDK (só OkHttp puro, embutido no APK)
+// sem SDK (só OkHttp puro, embutido no APK). Renova o token
+// automaticamente quando ele expira (padrão: 1 hora).
 // ============================================================
 object SupabaseApi {
 
@@ -353,14 +402,17 @@ object SupabaseApi {
     private val client = OkHttpClient()
     private val JSON = "application/json".toMediaType()
 
+    data class Meta(val passosAlvo: Int, val tipo: String)
+
     private fun tokenDoUsuario(context: Context): String {
         val prefs = context.getSharedPreferences("auth_prefs", Context.MODE_PRIVATE)
         return prefs.getString("access_token", "") ?: ""
     }
 
-    private fun salvarSessao(context: Context, accessToken: String, userId: String) {
+    private fun salvarSessao(context: Context, accessToken: String, refreshToken: String, userId: String) {
         context.getSharedPreferences("auth_prefs", Context.MODE_PRIVATE).edit()
             .putString("access_token", accessToken)
+            .putString("refresh_token", refreshToken)
             .putString("user_id", userId)
             .apply()
     }
@@ -371,6 +423,60 @@ object SupabaseApi {
 
     fun sessaoAtiva(context: Context): Boolean =
         context.getSharedPreferences("auth_prefs", Context.MODE_PRIVATE).contains("access_token")
+
+    /** Usa o refresh_token pra pedir um access_token novo, sem precisar logar de novo. */
+    private suspend fun renovarToken(context: Context): Boolean = withContext(Dispatchers.IO) {
+        val prefs = context.getSharedPreferences("auth_prefs", Context.MODE_PRIVATE)
+        val refreshToken = prefs.getString("refresh_token", null) ?: return@withContext false
+
+        val body = JSONObject().apply {
+            put("refresh_token", refreshToken)
+        }.toString().toRequestBody(JSON)
+
+        val request = Request.Builder()
+            .url("$SUPABASE_URL/auth/v1/token?grant_type=refresh_token")
+            .header("apikey", SUPABASE_ANON_KEY)
+            .header("Content-Type", "application/json")
+            .post(body)
+            .build()
+
+        try {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext false
+                val json = JSONObject(response.body?.string() ?: "{}")
+                val novoAccessToken = json.optString("access_token", "")
+                val novoRefreshToken = json.optString("refresh_token", "")
+                if (novoAccessToken.isEmpty()) return@withContext false
+                prefs.edit()
+                    .putString("access_token", novoAccessToken)
+                    .putString("refresh_token", novoRefreshToken)
+                    .apply()
+                true
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Executa uma chamada autenticada; se o token estiver expirado (401),
+     * renova automaticamente e tenta de novo uma vez.
+     */
+    private suspend fun chamadaAutenticada(
+        context: Context,
+        montarRequisicao: (String) -> Request
+    ): Response = withContext(Dispatchers.IO) {
+        val token = tokenDoUsuario(context)
+        var response = client.newCall(montarRequisicao(token)).execute()
+        if (response.code == 401) {
+            response.close()
+            if (renovarToken(context)) {
+                val novoToken = tokenDoUsuario(context)
+                response = client.newCall(montarRequisicao(novoToken)).execute()
+            }
+        }
+        response
+    }
 
     suspend fun cadastrar(context: Context, nome: String, email: String, senha: String) =
         withContext(Dispatchers.IO) {
@@ -393,13 +499,14 @@ object SupabaseApi {
                 }
                 val json = JSONObject(texto)
                 val accessToken = json.optString("access_token", "")
+                val refreshToken = json.optString("refresh_token", "")
                 val userId = json.getJSONObject("user").getString("id")
 
                 if (accessToken.isEmpty()) {
                     throw IOException("Conta criada! Confirme seu e-mail antes de entrar.")
                 }
 
-                salvarSessao(context, accessToken, userId)
+                salvarSessao(context, accessToken, refreshToken, userId)
                 criarPerfil(context, userId, nome, accessToken)
             }
         }
@@ -445,24 +552,31 @@ object SupabaseApi {
                 throw IOException(mensagemDeErro(texto, "E-mail ou senha incorretos"))
             }
             val json = JSONObject(texto)
-            salvarSessao(context, json.getString("access_token"), json.getJSONObject("user").getString("id"))
+            salvarSessao(
+                context,
+                json.getString("access_token"),
+                json.optString("refresh_token", ""),
+                json.getJSONObject("user").getString("id")
+            )
         }
     }
 
-    suspend fun temVinculo(context: Context): Boolean = withContext(Dispatchers.IO) {
+    suspend fun temVinculo(context: Context): Boolean {
         val pacienteId = context.getSharedPreferences("auth_prefs", Context.MODE_PRIVATE)
-            .getString("user_id", null) ?: return@withContext false
+            .getString("user_id", null) ?: return false
 
-        val request = Request.Builder()
-            .url("$SUPABASE_URL/rest/v1/passos_vinculos?paciente_id=eq.$pacienteId&select=id&limit=1")
-            .header("apikey", SUPABASE_ANON_KEY)
-            .header("Authorization", "Bearer ${tokenDoUsuario(context)}")
-            .get()
-            .build()
+        val response = chamadaAutenticada(context) { token ->
+            Request.Builder()
+                .url("$SUPABASE_URL/rest/v1/passos_vinculos?paciente_id=eq.$pacienteId&select=id&limit=1")
+                .header("apikey", SUPABASE_ANON_KEY)
+                .header("Authorization", "Bearer $token")
+                .get()
+                .build()
+        }
 
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) return@withContext false
-            org.json.JSONArray(response.body?.string() ?: "[]").length() > 0
+        response.use {
+            if (!it.isSuccessful) return false
+            return org.json.JSONArray(it.body?.string() ?: "[]").length() > 0
         }
     }
 
@@ -474,11 +588,11 @@ object SupabaseApi {
             padrao
         }
 
-    suspend fun upsertPassosDiarios(context: Context, data: String, passos: Int) =
-        withContext(Dispatchers.IO) {
-            val pacienteId = context.getSharedPreferences("auth_prefs", Context.MODE_PRIVATE)
-                .getString("user_id", null) ?: return@withContext
+    suspend fun upsertPassosDiarios(context: Context, data: String, passos: Int) {
+        val pacienteId = context.getSharedPreferences("auth_prefs", Context.MODE_PRIVATE)
+            .getString("user_id", null) ?: return
 
+        val response = chamadaAutenticada(context) { token ->
             val body = JSONObject().apply {
                 put("paciente_id", pacienteId)
                 put("data", data)
@@ -486,62 +600,88 @@ object SupabaseApi {
                 put("atualizado_em", java.time.Instant.now().toString())
             }.toString().toRequestBody(JSON)
 
-            val request = Request.Builder()
+            Request.Builder()
                 .url("$SUPABASE_URL/rest/v1/passos_diarios")
                 .header("apikey", SUPABASE_ANON_KEY)
-                .header("Authorization", "Bearer ${tokenDoUsuario(context)}")
+                .header("Authorization", "Bearer $token")
                 .header("Content-Type", "application/json")
                 .header("Prefer", "resolution=merge-duplicates")
                 .post(body)
                 .build()
-
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    throw IOException("Falha ao sincronizar passos: ${response.code} ${response.body?.string()}")
-                }
-            }
         }
 
-    suspend fun buscarConvite(context: Context, codigo: String): String? =
-        withContext(Dispatchers.IO) {
-            val request = Request.Builder()
-                .url("$SUPABASE_URL/rest/v1/passos_convites?codigo=eq.$codigo&select=fisio_id")
+        response.use {
+            if (!it.isSuccessful) {
+                throw IOException("Falha ao sincronizar passos: ${it.code} ${it.body?.string()}")
+            }
+        }
+    }
+
+    suspend fun buscarMetaAtiva(context: Context): Meta? {
+        val pacienteId = context.getSharedPreferences("auth_prefs", Context.MODE_PRIVATE)
+            .getString("user_id", null) ?: return null
+
+        val response = chamadaAutenticada(context) { token ->
+            Request.Builder()
+                .url("$SUPABASE_URL/rest/v1/passos_metas?paciente_id=eq.$pacienteId&ativa=eq.true&order=criado_em.desc&limit=1&select=passos_alvo,tipo")
                 .header("apikey", SUPABASE_ANON_KEY)
-                .header("Authorization", "Bearer ${tokenDoUsuario(context)}")
+                .header("Authorization", "Bearer $token")
                 .get()
                 .build()
-
-            client.newCall(request).execute().use { response ->
-                val texto = response.body?.string() ?: "[]"
-                if (!response.isSuccessful) {
-                    throw IOException("Erro ao buscar convite: ${response.code} $texto")
-                }
-                val arr = org.json.JSONArray(texto)
-                if (arr.length() == 0) return@withContext null
-                arr.getJSONObject(0).optString("fisio_id", null)
-            }
         }
 
-    suspend fun criarVinculo(context: Context, fisioId: String) = withContext(Dispatchers.IO) {
+        response.use {
+            if (!it.isSuccessful) return null
+            val arr = org.json.JSONArray(it.body?.string() ?: "[]")
+            if (arr.length() == 0) return null
+            val obj = arr.getJSONObject(0)
+            return Meta(obj.getInt("passos_alvo"), obj.getString("tipo"))
+        }
+    }
+
+    suspend fun buscarConvite(context: Context, codigo: String): String? {
+        val response = chamadaAutenticada(context) { token ->
+            Request.Builder()
+                .url("$SUPABASE_URL/rest/v1/passos_convites?codigo=eq.$codigo&select=fisio_id")
+                .header("apikey", SUPABASE_ANON_KEY)
+                .header("Authorization", "Bearer $token")
+                .get()
+                .build()
+        }
+
+        response.use {
+            val texto = it.body?.string() ?: "[]"
+            if (!it.isSuccessful) {
+                throw IOException("Erro ao buscar convite: ${it.code} $texto")
+            }
+            val arr = org.json.JSONArray(texto)
+            if (arr.length() == 0) return null
+            return arr.getJSONObject(0).optString("fisio_id", null)
+        }
+    }
+
+    suspend fun criarVinculo(context: Context, fisioId: String) {
         val pacienteId = context.getSharedPreferences("auth_prefs", Context.MODE_PRIVATE)
-            .getString("user_id", null) ?: return@withContext
+            .getString("user_id", null) ?: return
 
-        val body = JSONObject().apply {
-            put("paciente_id", pacienteId)
-            put("fisio_id", fisioId)
-        }.toString().toRequestBody(JSON)
+        val response = chamadaAutenticada(context) { token ->
+            val body = JSONObject().apply {
+                put("paciente_id", pacienteId)
+                put("fisio_id", fisioId)
+            }.toString().toRequestBody(JSON)
 
-        val request = Request.Builder()
-            .url("$SUPABASE_URL/rest/v1/passos_vinculos")
-            .header("apikey", SUPABASE_ANON_KEY)
-            .header("Authorization", "Bearer ${tokenDoUsuario(context)}")
-            .header("Content-Type", "application/json")
-            .post(body)
-            .build()
+            Request.Builder()
+                .url("$SUPABASE_URL/rest/v1/passos_vinculos")
+                .header("apikey", SUPABASE_ANON_KEY)
+                .header("Authorization", "Bearer $token")
+                .header("Content-Type", "application/json")
+                .post(body)
+                .build()
+        }
 
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                throw IOException("Falha ao criar vínculo: ${response.code} ${response.body?.string()}")
+        response.use {
+            if (!it.isSuccessful) {
+                throw IOException("Falha ao criar vínculo: ${it.code} ${it.body?.string()}")
             }
         }
     }
