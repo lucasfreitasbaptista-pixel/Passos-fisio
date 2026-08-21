@@ -122,6 +122,16 @@
         android:visibility="gone">
 
         <TextView
+            android:id="@+id/btnSairPaciente"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end"
+            android:text="Sair"
+            android:textSize="12sp"
+            android:textColor="#6b6a63"
+            android:padding="8dp" />
+
+        <TextView
             android:id="@+id/textPassosHoje"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
