@@ -79,12 +79,27 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             -999
         }
-        Toast.makeText(this, "Health Connect status: $status", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "HC status: $status", Toast.LENGTH_LONG).show()
 
-        if (!HealthConnectHelper.disponivel(this)) return
+        if (!HealthConnectHelper.disponivel(this)) {
+            Toast.makeText(this, "HC: disponivel() = false, parando aqui", Toast.LENGTH_LONG).show()
+            return
+        }
         lifecycleScope.launch {
-            if (!HealthConnectHelper.temPermissao(this@MainActivity)) {
-                pedirPermissaoHealthConnect.launch(HealthConnectHelper.PERMISSOES)
+            val temPermissao = try {
+                HealthConnectHelper.temPermissao(this@MainActivity)
+            } catch (e: Exception) {
+                Toast.makeText(this@MainActivity, "HC erro ao checar permissao: ${e.message}", Toast.LENGTH_LONG).show()
+                true
+            }
+            Toast.makeText(this@MainActivity, "HC temPermissao: $temPermissao", Toast.LENGTH_LONG).show()
+            if (!temPermissao) {
+                try {
+                    Toast.makeText(this@MainActivity, "HC chamando launch()...", Toast.LENGTH_SHORT).show()
+                    pedirPermissaoHealthConnect.launch(HealthConnectHelper.PERMISSOES)
+                } catch (e: Exception) {
+                    Toast.makeText(this@MainActivity, "HC erro no launch: ${e.message}", Toast.LENGTH_LONG).show()
+                }
             }
         }
     }
